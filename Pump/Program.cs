@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Raylib_cs;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 public class BalloonPumpGame
 {
@@ -41,6 +42,15 @@ public class BalloonPumpGame
         Color.Orange
     };
     static int currentColorIndex = 0;
+
+    // Hide console window (Windows only)
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetConsoleWindow();
+
+    [DllImport("user32.dll")]
+    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    const int SW_HIDE = 0;
 
     public static string Sha256Encrypt(string inputString)
     {
@@ -147,8 +157,13 @@ public class BalloonPumpGame
 
     public static void Main()
     {
-        // Initialize window
-        Raylib.InitWindow(ScreenWidth, ScreenHeight, "Provably Fair Balloon Pump");
+        // Hide console window
+        var handle = GetConsoleWindow();
+        ShowWindow(handle, SW_HIDE);
+
+        // Initialize window in fullscreen
+        Raylib.InitWindow(ScreenWidth, ScreenHeight, "Balloon Pump Game");
+        Raylib.SetWindowState(ConfigFlags.FullscreenMode);
         Raylib.SetTargetFPS(60);
 
         // Generate initial seeds
