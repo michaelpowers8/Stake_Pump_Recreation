@@ -1,470 +1,258 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
-using System.Threading;
+using Raylib_cs;
+using System.Numerics;
 
-public class BalloonPumpGame
+public class BalloonGame
 {
-    // Helper method to compute SHA256 hash
-    public static string Sha256Encrypt(string inputString)
-    {
-        using (SHA256 sha256 = SHA256.Create())
-        {
-            byte[] bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(inputString));
-            StringBuilder builder = new StringBuilder();
-            foreach (byte b in bytes)
-            {
-                builder.Append(b.ToString("x2"));
-            }
-            return builder.ToString();
-        }
-    }
-
-    // Generate HMAC-SHA256 hashes from seeds and nonce
-    public static List<string> SeedsToHexadecimals(string serverSeed, string clientSeed, int nonce)
-    {
-        List<string> messages = new List<string>
-        {
-            $"{clientSeed}:{nonce}:0",
-            $"{clientSeed}:{nonce}:1",
-            $"{clientSeed}:{nonce}:2"
-        };
-
-        List<string> hexDigests = new List<string>();
-        foreach (string message in messages)
-        {
-            using (HMACSHA256 hmac = new HMACSHA256(Encoding.UTF8.GetBytes(serverSeed)))
-            {
-                byte[] hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(message));
-                hexDigests.Add(BitConverter.ToString(hashBytes).Replace("-", "").ToLower());
-            }
-        }
-        return hexDigests;
-    }
-
-    // Convert hexadecimal string to bytes
-    public static List<byte> HexadecimalToBytes(string hexadecimal)
-    {
-        return Enumerable.Range(0, hexadecimal.Length)
-                         .Where(x => x % 2 == 0)
-                         .Select(x => Convert.ToByte(hexadecimal.Substring(x, 2), 16))
-                         .ToList();
-    }
-
-    // Convert bytes to a weighted number
-    public static int BytesToNumber(List<byte> bytesList, int multiplier)
-    {
-        double number = (
-            (bytesList[0] / Math.Pow(256, 1)) +
-            (bytesList[1] / Math.Pow(256, 2)) +
-            (bytesList[2] / Math.Pow(256, 3)) +
-            (bytesList[3] / Math.Pow(256, 4))
-        );
-        return (int)Math.Floor(number * multiplier);
-    }
-
-    // Generate a random server seed (64 hex chars)
-    public static string GenerateServerSeed()
-    {
-        Random random = new Random();
-        const string chars = "0123456789abcdef";
-        return new string(Enumerable.Repeat(chars, 64)
-            .Select(s => s[random.Next(s.Length)]).ToArray());
-    }
-
-    // Generate a random client seed (20 hex chars)
-    public static string GenerateClientSeed()
-    {
-        Random random = new Random();
-        const string chars = "0123456789abcdef";
-        return new string(Enumerable.Repeat(chars, 20)
-            .Select(s => s[random.Next(s.Length)]).ToArray());
-    }
-
-    // Generate game results from seeds
-    public static List<int> SeedsToResults(string serverSeed, string clientSeed, int nonce, string difficulty)
-    {
-        List<int> shuffle = Enumerable.Range(0, 25).ToList();
-        List<string> hexs = SeedsToHexadecimals(serverSeed, clientSeed, nonce);
-        List<List<byte>> bytesLists = hexs.Select(HexadecimalToBytes).ToList();
-        List<int> row = new List<int>();
-        int multiplier = 25;
-
-        foreach (List<byte> bytesList in bytesLists)
-        {
-            for (int i = 0; i < bytesList.Count; i += 4)
-            {
-                if (i + 4 <= bytesList.Count)
-                {
-                    row.Add(BytesToNumber(bytesList.GetRange(i, 4), multiplier));
-                    multiplier--;
-                }
-            }
-        }
-
-        List<int> finalShuffle = new List<int>();
-        for (int i = 0; i < row.Count; i++)
-        {
-            int num = row[i] % shuffle.Count;
-            finalShuffle.Add(shuffle[num] + 1);
-            shuffle.RemoveAt(num);
-        }
-        finalShuffle.Add(shuffle[0] + 1);
-        return finalShuffle.Take(difficulty == "hard" ? 5 : 10).OrderBy(x => x).ToList();
-    }
-
-    // Calculate winnings based on results
-    public static double CalculateWinnings(double bet, List<int> results, string difficulty)
-    {
-        double[] multipliersHard = new double[]
-        {
-            1.0, 1.23, 1.55, 1.98, 2.56, 3.36, 4.48, 6.08, 8.41, 11.92, 17.34, 26.01,
-            40.46, 65.74, 112.70, 206.62, 413.23, 929.77, 2479.40, 8677.90, 52067.40
-        };
-
-        double[] multipliersEasy = new double[]
-        {
-            1.0, 1.63, 2.80, 4.95, 9.08, 17.34, 34.68, 73.21, 164.72, 400.02, 1066.73, 3200.18,
-            11200.65, 48536.13, 291216.80, 3203384.80
-        };
-
-        double[] multipliers = difficulty == "hard" ? multipliersHard : multipliersEasy;
-        return bet * multipliers[results.Min() - 1];
-    }
+    // Game constants
+    const int ScreenWidth = 800;
+    const int ScreenHeight = 600;
+    const float MaxBalloonSize = 300f;
+    const float MinBalloonSize = 50f;
+    const float PumpIncrement = 5f;
+    const float DangerThreshold = 0.8f; // 80% of max size
 
     // Game state
-    private static double balance = 1000;
-    private static double currentBet = 0;
-    private static double currentMultiplier = 1.0;
-    private static int currentPumps = 0;
-    private static string serverSeed = "";
-    private static string clientSeed = "";
-    private static int nonce = 0;
-    private static bool isAnimating = false;
+    static float balloonSize = MinBalloonSize;
+    static float tension = 0f;
+    static float multiplier = 1.0f;
+    static float balance = 1000f;
+    static float currentBet = 10f;
+    static bool balloonPopped = false;
+    static bool gameRunning = true;
+    static int pumps = 0;
 
     // Colors
-    private static ConsoleColor[] balloonColors = new ConsoleColor[]
+    static Color[] balloonColors = new Color[]
     {
-        ConsoleColor.Red,
-        ConsoleColor.Yellow,
-        ConsoleColor.Green,
-        ConsoleColor.Cyan,
-        ConsoleColor.Magenta
+        Color.Red,
+        Color.Green,
+        Color.Blue,
+        Color.Yellow,
+        Color.Purple,
+        Color.Orange
     };
+    static int currentColorIndex = 0;
 
-    // Multipliers
-    private static double[] multipliers = new double[]
-    {
-        1.0, 1.23, 1.55, 1.98, 2.56, 3.36, 4.48, 6.08, 8.41, 11.92, 17.34, 26.01,
-        40.46, 65.74, 112.70, 206.62, 413.23, 929.77, 2479.40, 8677.90, 52067.40
-    };
-
-    // Get current game state
-    private static (double multiplier, bool popped) GetCurrentGameState(int pumps)
-    {
-        List<int> shuffle = Enumerable.Range(0, 25).ToList();
-        List<string> hexs = SeedsToHexadecimals(serverSeed, clientSeed, nonce);
-        List<List<byte>> bytesLists = hexs.Select(HexadecimalToBytes).ToList();
-        List<int> row = new List<int>();
-        int multiplier = 25;
-
-        foreach (List<byte> bytesList in bytesLists)
-        {
-            for (int i = 0; i < bytesList.Count; i += 4)
-            {
-                if (i + 4 <= bytesList.Count)
-                {
-                    row.Add(BytesToNumber(bytesList.GetRange(i, 4), multiplier));
-                    multiplier--;
-                }
-            }
-        }
-
-        List<int> finalShuffle = new List<int>();
-        for (int i = 0; i < row.Count; i++)
-        {
-            int num = row[i] % shuffle.Count;
-            finalShuffle.Add(shuffle[num] + 1);
-            shuffle.RemoveAt(num);
-        }
-        finalShuffle.Add(shuffle[0] + 1);
-
-        int dangerNumber = finalShuffle.Take(5).Min();
-        bool popped = pumps >= dangerNumber;
-
-        double currentMultiplier = pumps < multipliers.Length ? multipliers[pumps] : multipliers.Last();
-
-        return (currentMultiplier, popped);
-    }
-
-    // Draw the balloon with animation
-    private static void DrawBalloon(int size, bool popped = false)
-    {
-        Console.Clear();
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine($" BALANCE: ${balance:N2}");
-        Console.WriteLine($"    BET: ${currentBet:N2}");
-        Console.WriteLine();
-
-        if (popped)
-        {
-            // Popped balloon animation
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("      ╔════════════╗");
-            Console.WriteLine("      ║   BOOOOM!   ║");
-            Console.WriteLine("      ╚════════════╝");
-            Console.WriteLine();
-            Console.WriteLine("    *     *     *     *");
-            Console.WriteLine("  *   *   *   *   *   *");
-            Console.WriteLine("    *     *     *     *");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine($"\nThe balloon popped after {currentPumps} pumps!");
-            Console.WriteLine($"You lost ${currentBet:N2}");
-            Console.WriteLine("\nPress any key to continue...");
-            return;
-        }
-
-        // Choose balloon color based on pump count
-        Console.ForegroundColor = balloonColors[currentPumps % balloonColors.Length];
-
-        // Animated growing balloon
-        string balloonTop = "  " + new string('_', size + 2);
-        string balloonMiddle = " (" + new string(' ', size) + ")";
-        string balloonBottom = "  " + new string('-', size + 2);
-
-        Console.WriteLine(balloonTop);
-        Console.WriteLine(balloonMiddle);
-        Console.WriteLine(balloonBottom);
-
-        // String with tension indicators
-        Console.ForegroundColor = ConsoleColor.DarkYellow;
-        string tensionString = new string('=', currentPumps * 2);
-        Console.WriteLine($"  {tensionString}||{tensionString}");
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("     |  |");
-        Console.WriteLine("     |  |");
-
-        // Game info
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine($"\n MULTIPLIER: {currentMultiplier:N2}x");
-        Console.WriteLine($"     PUMPS: {currentPumps}");
-
-        // Tension meter
-        Console.Write(" TENSION: [");
-        Console.ForegroundColor = GetTensionColor(currentPumps);
-        Console.Write(new string('█', Math.Min(currentPumps, 20)));
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine(new string(' ', Math.Max(0, 20 - currentPumps)) + "]");
-
-        Console.WriteLine("\n [P] Pump  [C] Cash Out  [Q] Quit");
-    }
-
-    private static ConsoleColor GetTensionColor(int pumps)
-    {
-        if (pumps < 5) return ConsoleColor.Green;
-        if (pumps < 10) return ConsoleColor.Yellow;
-        if (pumps < 15) return ConsoleColor.DarkYellow;
-        return ConsoleColor.Red;
-    }
-
-    // Animate balloon growing
-    private static void AnimatePump()
-    {
-        isAnimating = true;
-        Console.CursorVisible = false;
-
-        try
-        {
-            int startSize = 5 + (currentPumps - 1) * 2;
-            int endSize = 5 + currentPumps * 2;
-
-            // Initial positions of elements we'll update
-            int balloonTop = 3; // Line where balloon starts
-            int infoLine = balloonTop + 6; // Line below balloon
-
-            // Save static parts that don't change
-            Console.SetCursorPosition(0, 0);
-            Console.Write($" BALANCE: ${balance:N2}");
-            Console.SetCursorPosition(0, 1);
-            Console.Write($"    BET: ${currentBet:N2}\n");
-
-            // Animation loop
-            for (int size = startSize; size <= endSize; size++)
-            {
-                // Draw balloon
-                Console.SetCursorPosition(0, balloonTop);
-                Console.WriteLine("  " + new string('_', size + 2));
-                Console.WriteLine(" (" + new string(' ', size) + ")");
-                Console.WriteLine("  " + new string('-', size + 2));
-
-                // Draw string
-                string tensionString = new string('=', currentPumps * 2);
-                Console.WriteLine($"  {tensionString}||{tensionString}");
-                Console.WriteLine("     |  |");
-                Console.WriteLine("     |  |");
-
-                // Update info without clearing
-                Console.SetCursorPosition(0, infoLine);
-                Console.WriteLine($"\n MULTIPLIER: {currentMultiplier:N2}x    ");
-                Console.WriteLine($"     PUMPS: {currentPumps}          ");
-
-                Thread.Sleep(50);
-            }
-
-            // Vibration effect for high pumps
-            if (currentPumps > 10)
-            {
-                for (int i = 0; i < 3; i++)
-                {
-                    Console.SetCursorPosition(1, balloonTop); // Slight offset
-                    Console.WriteLine(new string('_', endSize + 3));
-                    Thread.Sleep(100);
-                    Console.SetCursorPosition(0, balloonTop); // Back to normal
-                    Console.WriteLine("  " + new string('_', endSize + 2));
-                    Thread.Sleep(100);
-                }
-            }
-        }
-        finally
-        {
-            Console.CursorVisible = true;
-            isAnimating = false;
-        }
-    }
-
-    // Animate balloon popping
-    private static void AnimatePop()
-    {
-        isAnimating = true;
-        int size = 5 + currentPumps * 2;
-
-        // Shake before popping
-        for (int i = 0; i < 5; i++)
-        {
-            DrawBalloon(size + (i % 2));
-            Thread.Sleep(100);
-        }
-
-        // Pop animation frames
-        for (int frame = 0; frame < 3; frame++)
-        {
-            Console.Clear();
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("   .  *   .  *");
-            Console.WriteLine(" *   .  *   .");
-            Console.WriteLine("   .  *   .  *");
-            Console.WriteLine(" *   .  *   .");
-            Thread.Sleep(150);
-
-            Console.Clear();
-            Console.WriteLine("   *  .  *  .");
-            Console.WriteLine(" .  *  .  *");
-            Console.WriteLine("   *  .  *  .");
-            Console.WriteLine(" .  *  .  *");
-            Thread.Sleep(150);
-        }
-
-        DrawBalloon(size, true);
-        isAnimating = false;
-    }
-
-    // Main game loop
     public static void Main()
     {
-        Console.Title = "Balloon Pump Game";
-        Console.CursorVisible = false;
+        // Initialize window
+        Raylib.InitWindow(ScreenWidth, ScreenHeight, "Balloon Pump Game");
+        Raylib.SetTargetFPS(60);
 
-        while (true)
+        // Load textures and sounds
+        Texture2D background = Raylib.LoadTexture("background.png"); // You'll need to provide this
+        Sound pumpSound = Raylib.LoadSound("pump.wav");
+        Sound popSound = Raylib.LoadSound("pop.wav");
+        Sound cashSound = Raylib.LoadSound("cash.wav");
+
+        // Game loop
+        while (!Raylib.WindowShouldClose() && gameRunning)
         {
-            Console.Clear();
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("╔══════════════════════════╗");
-            Console.WriteLine("║   BALLOON PUMP GAME!    ║");
-            Console.WriteLine("╚══════════════════════════╝");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine($" Your balance: ${balance:N2}");
-
-            if (balance <= 0)
+            // Update
+            if (!balloonPopped)
             {
-                Console.WriteLine("\nYou're out of money! Game over.");
-                break;
+                HandleInput(pumpSound, popSound, cashSound);
+                UpdateTension();
+            }
+            else if (Raylib.IsKeyPressed(KeyboardKey.Space))
+            {
+                ResetRound();
             }
 
-            Console.Write("\nEnter your bet (or Q to quit): ");
-            string input = Console.ReadLine();
+            // Draw
+            Raylib.BeginDrawing();
+            Raylib.ClearBackground(Color.White);
 
-            if (input.ToLower() == "q") break;
+            // Draw background
+            Raylib.DrawTexture(background, 0, 0, Color.White);
 
-            if (!double.TryParse(input, out currentBet) || currentBet <= 0 || currentBet > balance)
+            // Draw UI elements
+            DrawUI();
+
+            if (!balloonPopped)
             {
-                Console.WriteLine("Invalid bet amount!");
-                Thread.Sleep(1000);
-                continue;
+                DrawBalloon();
+                DrawTensionMeter();
+            }
+            else
+            {
+                DrawPoppedBalloon();
             }
 
-            balance -= currentBet;
-            currentPumps = 0;
-            serverSeed = GenerateServerSeed();
-            clientSeed = GenerateClientSeed();
-            nonce++;
+            Raylib.EndDrawing();
+        }
 
-            bool gameRunning = true;
+        // Cleanup
+        Raylib.UnloadTexture(background);
+        Raylib.UnloadSound(pumpSound);
+        Raylib.UnloadSound(popSound);
+        Raylib.UnloadSound(cashSound);
+        Raylib.CloseWindow();
+    }
 
-            while (gameRunning && !isAnimating)
+    static void HandleInput(Sound pumpSound, Sound popSound, Sound cashSound)
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.P))
+        {
+            // Pump the balloon
+            balloonSize += PumpIncrement;
+            tension = balloonSize / MaxBalloonSize;
+            pumps++;
+
+            // Change color every few pumps
+            if (pumps % 3 == 0) currentColorIndex = (currentColorIndex + 1) % balloonColors.Length;
+
+            // Update multiplier
+            multiplier = 1.0f + (tension * 10f);
+
+            Raylib.PlaySound(pumpSound);
+
+            // Check if balloon pops
+            if (tension >= 1.0f || (tension > DangerThreshold && new Random().NextDouble() < (tension - DangerThreshold)))
             {
-                var result = GetCurrentGameState(currentPumps);
-                currentMultiplier = result.multiplier;
-
-                DrawBalloon(5 + currentPumps * 2);
-
-                if (Console.KeyAvailable)
-                {
-                    var key = Console.ReadKey(true).Key;
-
-                    switch (key)
-                    {
-                        case ConsoleKey.P:
-                            currentPumps++;
-                            AnimatePump();
-                            if (result.popped)
-                            {
-                                AnimatePop();
-                                Console.ReadKey(true);
-                                gameRunning = false;
-                            }
-                            break;
-
-                        case ConsoleKey.C:
-                            double winnings = currentBet * currentMultiplier;
-                            balance += winnings;
-                            Console.Clear();
-                            Console.ForegroundColor = ConsoleColor.Green;
-                            Console.WriteLine($"╔══════════════════════════╗");
-                            Console.WriteLine($"║   CASHE OUT: {currentMultiplier:N2}x!  ║");
-                            Console.WriteLine($"║   YOU WON ${winnings:N2}   ║");
-                            Console.WriteLine($"╚══════════════════════════╝");
-                            Console.ForegroundColor = ConsoleColor.White;
-                            Console.WriteLine($"\nNew balance: ${balance:N2}");
-                            Console.WriteLine("Press any key to continue...");
-                            Console.ReadKey(true);
-                            gameRunning = false;
-                            break;
-
-                        case ConsoleKey.Q:
-                            gameRunning = false;
-                            break;
-                    }
-                }
-
-                Thread.Sleep(50);
+                balloonPopped = true;
+                balance -= currentBet;
+                Raylib.PlaySound(popSound);
             }
         }
 
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine("\nThanks for playing!");
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.CursorVisible = true;
+        if (Raylib.IsKeyPressed(KeyboardKey.C))
+        {
+            // Cash out
+            balance += currentBet * multiplier;
+            Raylib.PlaySound(cashSound);
+            ResetRound();
+        }
+
+        // Adjust bet
+        if (Raylib.IsKeyPressed(KeyboardKey.Up) && currentBet < balance)
+        {
+            currentBet = Math.Min(currentBet + 10f, balance);
+        }
+        if (Raylib.IsKeyPressed(KeyboardKey.Down) && currentBet > 10f)
+        {
+            currentBet = Math.Max(currentBet - 10f, 10f);
+        }
+    }
+
+    static void UpdateTension()
+    {
+        // Random tension fluctuations to make it more exciting
+        if (Raylib.GetRandomValue(0, 100) > 95)
+        {
+            tension += Raylib.GetRandomValue(-10, 10) / 1000f;
+            tension = Math.Clamp(tension, 0f, 1f);
+        }
+    }
+
+    static void DrawBalloon()
+    {
+        Color balloonColor = balloonColors[currentColorIndex];
+
+        // Balloon wobble effect when tense
+        float wobble = tension > 0.7f ? (float)Math.Sin(Raylib.GetTime() * 10) * (5 * tension) : 0;
+
+        // Draw balloon
+        Raylib.DrawCircle(
+            (int)(ScreenWidth / 2 + wobble),
+            (int)(ScreenHeight / 2 - balloonSize / 3),
+            balloonSize / 2,
+            balloonColor
+        );
+
+        // Balloon highlight
+        Raylib.DrawCircle(
+            (int)(ScreenWidth / 2 - balloonSize / 6 + wobble),
+            (int)(ScreenHeight / 2 - balloonSize / 2.5f),
+            balloonSize / 8,
+            ColorFade(Color.White, 0.8f)
+        );
+
+        // Balloon string
+        Raylib.DrawLineEx(
+            new Vector2(ScreenWidth / 2 + wobble, ScreenHeight / 2 + balloonSize / 3),
+            new Vector2(ScreenWidth / 2, ScreenHeight / 2 + balloonSize / 2),
+            2f,
+            Color.Black
+        );
+    }
+
+    static void DrawPoppedBalloon()
+    {
+        // Draw explosion particles
+        for (int i = 0; i < 30; i++)
+        {
+            float angle = Raylib.GetRandomValue(0, 360) * Raylib.DEG2RAD;
+            float distance = Raylib.GetRandomValue(0, 100);
+            Vector2 pos = new Vector2(
+                ScreenWidth / 2 + (float)Math.Cos(angle) * distance,
+                ScreenHeight / 2 + (float)Math.Sin(angle) * distance
+            );
+
+            Raylib.DrawCircleV(pos, Raylib.GetRandomValue(2, 8),
+                balloonColors[Raylib.GetRandomValue(0, balloonColors.Length - 1)]);
+        }
+
+        // Draw "POP!" text
+        Raylib.DrawText("POP!", ScreenWidth / 2 - 50, ScreenHeight / 2 - 30, 60, Color.Red);
+        Raylib.DrawText($"Lost ${currentBet}", ScreenWidth / 2 - 80, ScreenHeight / 2 + 40, 30, Color.Red);
+        Raylib.DrawText("Press SPACE to continue", ScreenWidth / 2 - 150, ScreenHeight - 50, 20, Color.DarkGray);
+    }
+
+    static void DrawTensionMeter()
+    {
+        // Tension meter background
+        Raylib.DrawRectangle(50, 50, 200, 30, Color.LightGray);
+
+        // Tension level
+        Color tensionColor = tension < 0.5f ? Color.Green :
+                           tension < 0.8f ? Color.Yellow : Color.Red;
+
+        Raylib.DrawRectangle(50, 50, (int)(200 * tension), 30, tensionColor);
+
+        // Meter outline and label
+        Raylib.DrawRectangleLines(50, 50, 200, 30, Color.Black);
+        Raylib.DrawText("Tension Meter", 50, 20, 20, Color.Black);
+    }
+
+    static void DrawUI()
+    {
+        // Balance and bet info
+        Raylib.DrawText($"Balance: ${balance:F2}", 20, ScreenHeight - 80, 20, Color.Black);
+        Raylib.DrawText($"Current Bet: ${currentBet:F2}", 20, ScreenHeight - 50, 20, Color.Black);
+        Raylib.DrawText($"Multiplier: {multiplier:F2}x", ScreenWidth - 200, ScreenHeight - 50, 20, Color.Black);
+        Raylib.DrawText($"Pumps: {pumps}", ScreenWidth - 200, ScreenHeight - 80, 20, Color.Black);
+
+        // Instructions
+        if (!balloonPopped)
+        {
+            Raylib.DrawText("P: Pump  C: Cash Out", 20, ScreenHeight - 110, 20, Color.DarkGray);
+            Raylib.DrawText("UP/DOWN: Change Bet", 20, ScreenHeight - 140, 20, Color.DarkGray);
+
+            // Warning when tension is high
+            if (tension > 0.7f)
+            {
+                float flash = (float)Math.Abs(Math.Sin(Raylib.GetTime() * 5));
+                Raylib.DrawText("WARNING! High Tension!",
+                    ScreenWidth / 2 - 150, 100, 30,
+                    ColorFade(Color.Red, 0.5f + flash / 2));
+            }
+        }
+    }
+
+    static void ResetRound()
+    {
+        balloonSize = MinBalloonSize;
+        tension = 0f;
+        multiplier = 1.0f;
+        balloonPopped = false;
+        pumps = 0;
+        currentColorIndex = (currentColorIndex + 1) % balloonColors.Length;
+    }
+
+    static Color ColorFade(Color color, float alpha)
+    {
+        return new Color(color.R, color.G, color.B, (byte)(255 * alpha));
     }
 }
