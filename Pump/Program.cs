@@ -27,10 +27,11 @@ public class BalloonPumpGame
     // Game state
     static float balloonSize = MinBalloonSize;
     static float balance = 1000f;
-    static float currentBet = 10f;
+    static float currentBet = 1.00f;
     static bool balloonPopped = false;
     static bool gameRunning = true;
     static bool roundActive = false;
+    static bool hasPumped = false;
     static int currentPumps = 0;
     static int maxPumps = 0;
     static int currentMultiplierIndex = 0;
@@ -54,9 +55,11 @@ public class BalloonPumpGame
 
     // UI elements
     static Rectangle playButton = new Rectangle(ScreenWidth / 2 - 100, ScreenHeight / 2 + 150, 200, 60);
-    static Rectangle cashOutButton = new Rectangle(ScreenWidth / 2 - 100, ScreenHeight / 2 + 230, 200, 60);
+    static Rectangle pumpButton = new Rectangle(ScreenWidth / 2 - 100, ScreenHeight / 2 + 230, 200, 60);
+    static Rectangle cashOutButton = new Rectangle(ScreenWidth / 2 - 100, ScreenHeight / 2 + 310, 200, 60);
     static Rectangle betUpButton = new Rectangle(ScreenWidth - 120, ScreenHeight - 80, 50, 50);
     static Rectangle betDownButton = new Rectangle(ScreenWidth - 180, ScreenHeight - 80, 50, 50);
+    static Rectangle rotateSeedButton = new Rectangle(ScreenWidth - 300, 10, 200, 40);
 
     [DllImport("kernel32.dll")]
     static extern IntPtr GetConsoleWindow();
@@ -77,9 +80,12 @@ public class BalloonPumpGame
         Raylib.SetWindowState(ConfigFlags.FullscreenMode);
         Raylib.SetTargetFPS(60);
 
-        // Generate initial seeds
-        serverSeed = GenerateServerSeed();
-        clientSeed = GenerateClientSeed();
+        // Generate initial seeds only once at startup
+        if (string.IsNullOrEmpty(serverSeed))
+        {
+            serverSeed = GenerateServerSeed();
+            clientSeed = GenerateClientSeed();
+        }
 
         // Game loop
         while (!Raylib.WindowShouldClose() && gameRunning)
@@ -118,8 +124,6 @@ public class BalloonPumpGame
     static void StartNewRound()
     {
         nonce++;
-        serverSeed = GenerateServerSeed();
-        clientSeed = GenerateClientSeed();
         maxPumps = CalculateMaxPumps();
 
         balloonSize = MinBalloonSize;
@@ -127,17 +131,23 @@ public class BalloonPumpGame
         currentMultiplierIndex = 0;
         balloonPopped = false;
         roundActive = true;
+        hasPumped = false; // Reset the pumped flag
 
         // Deduct bet from balance
         balance -= currentBet;
+    }
 
-        // First automatic pump
-        PumpBalloon();
+    static void RotateSeeds()
+    {
+        serverSeed = GenerateServerSeed();
+        clientSeed = GenerateClientSeed();
+        nonce = 0; // Reset nonce when rotating seeds
     }
 
     static void PumpBalloon()
     {
         currentPumps++;
+        hasPumped = true; // Set the flag when pumped
         balloonSize = MinBalloonSize + (MaxBalloonSize - MinBalloonSize) * (currentPumps / (float)maxPumps);
 
         // Update multiplier if not popped
@@ -162,7 +172,7 @@ public class BalloonPumpGame
 
     static void CashOut()
     {
-        if (roundActive && !balloonPopped)
+        if (roundActive && !balloonPopped && hasPumped) // Added hasPumped check
         {
             balance += currentBet * Multipliers[currentMultiplierIndex];
             roundActive = false;
@@ -180,17 +190,25 @@ public class BalloonPumpGame
             {
                 StartNewRound();
             }
+            else if (roundActive && Raylib.CheckCollisionPointRec(mousePos, pumpButton))
+            {
+                PumpBalloon();
+            }
             else if (roundActive && Raylib.CheckCollisionPointRec(mousePos, cashOutButton))
             {
                 CashOut();
             }
-            else if (Raylib.CheckCollisionPointRec(mousePos, betUpButton) && currentBet < balance)
+            else if (Raylib.CheckCollisionPointRec(mousePos, betUpButton) && currentBet < 10f && currentBet + 0.5f <= balance)
             {
-                currentBet = Math.Min(currentBet + 10f, balance);
+                currentBet = Math.Min(currentBet + 0.5f, 10f);
             }
-            else if (Raylib.CheckCollisionPointRec(mousePos, betDownButton) && currentBet > 10f)
+            else if (Raylib.CheckCollisionPointRec(mousePos, betDownButton) && currentBet > 1f)
             {
-                currentBet = Math.Max(currentBet - 10f, 10f);
+                currentBet = Math.Max(currentBet - 0.5f, 1f);
+            }
+            else if (!roundActive && Raylib.CheckCollisionPointRec(mousePos, rotateSeedButton))
+            {
+                RotateSeeds();
             }
         }
     }
@@ -214,6 +232,36 @@ public class BalloonPumpGame
         {
             Raylib.DrawText("Balloon Popped!", ScreenWidth / 2 - 100, ScreenHeight / 2 - 200, 40, Color.Red);
         }
+
+        // Always show balance and bet in bottom left
+        DrawPersistentUI();
+    }
+
+    static void DrawUI()
+    {
+        // Draw pump button
+        Raylib.DrawRectangleRec(pumpButton, Color.Blue);
+        Raylib.DrawText("PUMP", (int)pumpButton.X + 60, (int)pumpButton.Y + 15, 30, Color.White);
+
+        // Draw cash out button - change color if disabled
+        Color cashOutColor = hasPumped ? Color.Gold : Color.Gray;
+        Raylib.DrawRectangleRec(cashOutButton, cashOutColor);
+        Raylib.DrawText("CASH OUT", (int)cashOutButton.X + 30, (int)cashOutButton.Y + 15, 30,
+            hasPumped ? Color.Black : Color.DarkGray);
+
+        // Draw current multiplier
+        Raylib.DrawText($"Multiplier: {Multipliers[currentMultiplierIndex]:F2}x",
+            ScreenWidth / 2 - 100, ScreenHeight / 2 + 100, 30, Color.Black);
+
+        // Always show balance and bet in bottom left
+        DrawPersistentUI();
+    }
+
+    static void DrawPersistentUI()
+    {
+        // Draw balance and bet info in bottom left
+        Raylib.DrawText($"Balance: ${balance:F2}", 20, ScreenHeight - 90, 30, Color.Black);
+        Raylib.DrawText($"Current Bet: ${currentBet:F2}", 20, ScreenHeight - 50, 30, Color.Black);
     }
 
     static void DrawSeedInfo()
@@ -223,6 +271,10 @@ public class BalloonPumpGame
         Raylib.DrawText($"Server Seed Hash: {hashedServerSeed}", 20, 10, 20, Color.Black);
         Raylib.DrawText($"Client Seed: {clientSeed}", 20, 40, 20, Color.Black);
         Raylib.DrawText($"Nonce: {FormatNonce(nonce)}", 20, 70, 20, Color.Black);
+
+        // Draw rotate seed button
+        Raylib.DrawRectangleRec(rotateSeedButton, Color.SkyBlue);
+        Raylib.DrawText("Rotate Seed", (int)rotateSeedButton.X + 30, (int)rotateSeedButton.Y + 10, 20, Color.Black);
     }
 
     static void DrawBalloon()
@@ -273,21 +325,6 @@ public class BalloonPumpGame
             Raylib.DrawCircleV(pos, Raylib.GetRandomValue(2, 8),
                 balloonColors[Raylib.GetRandomValue(0, balloonColors.Length - 1)]);
         }
-    }
-
-    static void DrawUI()
-    {
-        // Draw cash out button
-        Raylib.DrawRectangleRec(cashOutButton, Color.Gold);
-        Raylib.DrawText("CASH OUT", (int)cashOutButton.X + 30, (int)cashOutButton.Y + 15, 30, Color.Black);
-
-        // Draw current multiplier
-        Raylib.DrawText($"Multiplier: {Multipliers[currentMultiplierIndex]:F2}x",
-            ScreenWidth / 2 - 100, ScreenHeight / 2 + 100, 30, Color.Black);
-
-        // Draw balance and bet info
-        Raylib.DrawText($"Balance: ${balance:F2}", 20, ScreenHeight - 50, 30, Color.Black);
-        Raylib.DrawText($"Current Bet: ${currentBet:F2}", 20, ScreenHeight - 90, 30, Color.Black);
     }
 
     // Cryptographic functions
