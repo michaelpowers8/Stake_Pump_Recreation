@@ -14,8 +14,10 @@ public class BalloonPumpGame
     const int ScreenHeight = 1080;
     const float MaxBalloonSize = 500f;
     const float MinBalloonSize = 80f;
-    const float PumpIncrement = 50f;
     const float SizePerPump = (MaxBalloonSize - MinBalloonSize) / 20f; // Assuming max possible pumps is 20
+    const float MenuBalloonSize = 120f;
+    const float MenuBalloonWobbleSpeed = 2f;
+    const float MenuBalloonWobbleAmount = 10f;
 
     // Multiplier tiers
     static readonly float[] Multipliers = new float[]
@@ -36,6 +38,13 @@ public class BalloonPumpGame
     static int currentPumps = 0;
     static int maxPumps = 0;
     static int currentMultiplierIndex = 0;
+    static bool isCashingOut = false;
+    static float cashOutAnimationProgress = 0f;
+    static float menuBalloonWobbleTime = 0f;
+    static float popAnimationTimer = 0f;
+    static bool showingPopAnimation = false;
+    static Vector2 balloonPosition = new Vector2(ScreenWidth / 2, ScreenHeight / 2 - MinBalloonSize);
+    static Vector2 balloonVelocity = Vector2.Zero;
 
     // Cryptographic state
     static string serverSeed = "";
@@ -93,6 +102,9 @@ public class BalloonPumpGame
         {
             // Update
             HandleInput();
+            UpdateCashOutAnimation(); // Add this line to update animations
+            UpdateMenuBalloon();
+            UpdatePopAnimation();
 
             // Draw
             Raylib.BeginDrawing();
@@ -102,17 +114,16 @@ public class BalloonPumpGame
             DrawSeedInfo();
 
             // Draw game elements
-            if (roundActive)
+            if (roundActive || isCashingOut || showingPopAnimation) // Modified this condition
             {
                 DrawBalloon();
-                DrawUI();
+                if (!isCashingOut && !showingPopAnimation) // Only show UI if not in cash out animation
+                {
+                    DrawUI();
+                }
             }
             else
             {
-                if (balloonPopped)
-                {
-                    DrawPoppedBalloon();
-                }
                 DrawMainMenu();
             }
 
@@ -149,39 +160,79 @@ public class BalloonPumpGame
     static void PumpBalloon()
     {
         currentPumps++;
-        hasPumped = true; // Set the flag when pumped
+        hasPumped = true;
         balloonSize = MinBalloonSize + (SizePerPump * currentPumps);
-
-        // Clamp the size to not exceed MaxBalloonSize
         balloonSize = Math.Min(balloonSize, MaxBalloonSize);
 
-        // Update multiplier if not popped
         if (!balloonPopped && currentMultiplierIndex < Multipliers.Length - 1)
         {
             currentMultiplierIndex++;
         }
 
-        // Change color every few pumps
         if (currentPumps % 3 == 0)
         {
             currentColorIndex = (currentColorIndex + 1) % balloonColors.Length;
         }
 
-        // Check if balloon should pop
         if (currentPumps >= maxPumps)
         {
             balloonPopped = true;
             roundActive = false;
+            showingPopAnimation = true;
+            popAnimationTimer = 0f; // Start the timer
+        }
+    }
+
+    static void UpdatePopAnimation()
+    {
+        if (showingPopAnimation)
+        {
+            popAnimationTimer += Raylib.GetFrameTime();
+
+            // After 1 second, end the animation
+            if (popAnimationTimer >= 1f)
+            {
+                showingPopAnimation = false;
+                balloonPopped = false;
+            }
         }
     }
 
     static void CashOut()
     {
-        if (roundActive && !balloonPopped && hasPumped) // Added hasPumped check
+        if (roundActive && !balloonPopped && hasPumped)
         {
+            isCashingOut = true;
+            cashOutAnimationProgress = 0f;
+            balloonVelocity = new Vector2(0, -5f); // Initial upward velocity
+
+            // Apply winnings immediately (before animation completes)
             balance += currentBet * Multipliers[currentMultiplierIndex];
             roundActive = false;
             balloonPopped = false;
+        }
+    }
+
+    static void UpdateCashOutAnimation()
+    {
+        if (!isCashingOut) return;
+
+        cashOutAnimationProgress += 0.01f;
+
+        // Apply gravity and wind effects
+        balloonVelocity.Y -= 0.2f; // Gravity pulling down slightly
+        balloonVelocity.X += (float)Math.Sin(Raylib.GetTime() * 5) * 0.5f; // Wobble side to side
+
+        // Update position
+        balloonPosition += balloonVelocity;
+
+        // Make balloon shrink as it flies away
+        balloonSize = Math.Max(balloonSize * 0.98f, 10f);
+
+        // End animation when balloon is off screen or too small
+        if (balloonPosition.Y < -balloonSize || balloonSize < 10f || cashOutAnimationProgress >= 1f)
+        {
+            isCashingOut = false;
         }
     }
 
@@ -220,6 +271,44 @@ public class BalloonPumpGame
 
     static void DrawMainMenu()
     {
+        // Draw the menu balloon
+        float wobbleOffset = (float)Math.Sin(menuBalloonWobbleTime) * MenuBalloonWobbleAmount;
+        int balloonCenterX = ScreenWidth / 2 + (int)wobbleOffset;
+        int balloonCenterY = ScreenHeight / 2 - 200;
+
+        // Draw balloon
+        Raylib.DrawCircle(
+            balloonCenterX,
+            balloonCenterY,
+            MenuBalloonSize / 2,
+            balloonColors[currentColorIndex]
+        );
+
+        // Balloon highlight
+        Raylib.DrawCircle(
+            balloonCenterX - (int)(MenuBalloonSize / 6),
+            balloonCenterY - (int)(MenuBalloonSize / 4),
+            MenuBalloonSize / 8,
+            ColorFade(Color.White, 0.8f)
+        );
+
+        // Balloon string
+        Vector2 stringTop = new Vector2(
+            balloonCenterX,
+            balloonCenterY + MenuBalloonSize / 2
+        );
+        Vector2 stringBottom = new Vector2(
+            balloonCenterX,
+            balloonCenterY + MenuBalloonSize / 2 + MenuBalloonSize * 0.8f
+        );
+
+        Raylib.DrawLineEx(
+            stringTop,
+            stringBottom,
+            2f,
+            Color.Black
+        );
+
         // Draw play button
         Raylib.DrawRectangleRec(playButton, Color.Green);
         Raylib.DrawText("PLAY", (int)playButton.X + 60, (int)playButton.Y + 15, 30, Color.White);
@@ -240,6 +329,14 @@ public class BalloonPumpGame
 
         // Always show balance and bet in bottom left
         DrawPersistentUI();
+    }
+
+    static void UpdateMenuBalloon()
+    {
+        if (!roundActive && !isCashingOut)
+        {
+            menuBalloonWobbleTime += Raylib.GetFrameTime() * MenuBalloonWobbleSpeed;
+        }
     }
 
     static void DrawUI()
@@ -284,14 +381,30 @@ public class BalloonPumpGame
 
     static void DrawBalloon()
     {
+        if (showingPopAnimation)
+        {
+            DrawPoppedBalloon();
+            return;
+        }
+
         Color balloonColor = balloonColors[currentColorIndex];
 
-        // Always wobble after first pump
-        float wobble = currentPumps > 0 ? (float)Math.Sin(Raylib.GetTime() * 10) * 3f : 0;
+        // Use animated position if cashing out, otherwise calculate normally
+        int balloonCenterX, balloonCenterY;
 
-        // Balloon position - moved higher by increasing the Y offset
-        int balloonCenterX = ScreenWidth / 2 + (int)wobble;
-        int balloonCenterY = ScreenHeight / 2 - (int)(balloonSize);  // Increased Y offset to move balloon higher
+        if (isCashingOut)
+        {
+            balloonCenterX = (int)balloonPosition.X;
+            balloonCenterY = (int)balloonPosition.Y;
+        }
+        else
+        {
+            // Regular wobble when not cashing out
+            float wobble = currentPumps > 0 ? (float)Math.Sin(Raylib.GetTime() * 10) * 3f : 0;
+            balloonCenterX = ScreenWidth / 2 + (int)wobble;
+            balloonCenterY = ScreenHeight / 2 - (int)(balloonSize);
+            balloonPosition = new Vector2(balloonCenterX, balloonCenterY);
+        }
 
         // Draw balloon
         Raylib.DrawCircle(
@@ -309,22 +422,25 @@ public class BalloonPumpGame
             ColorFade(Color.White, 0.8f)
         );
 
-        // Balloon string - connected to bottom and made longer
-        Vector2 stringTop = new Vector2(
-            balloonCenterX,
-            balloonCenterY + balloonSize / 2  // Start from bottom of balloon
-        );
-        Vector2 stringBottom = new Vector2(
-            balloonCenterX,
-            balloonCenterY + balloonSize / 2 + balloonSize * 0.8f  // Made string longer by adding balloonSize factor
-        );
+        // Balloon string - only draw if not cashing out
+        if (!isCashingOut)
+        {
+            Vector2 stringTop = new Vector2(
+                balloonCenterX,
+                balloonCenterY + balloonSize / 2
+            );
+            Vector2 stringBottom = new Vector2(
+                balloonCenterX,
+                balloonCenterY + balloonSize / 2 + balloonSize * 0.8f
+            );
 
-        Raylib.DrawLineEx(
-            stringTop,
-            stringBottom,
-            2f,
-            Color.Black
-        );
+            Raylib.DrawLineEx(
+                stringTop,
+                stringBottom,
+                2f,
+                Color.Black
+            );
+        }
     }
 
     static void DrawPoppedBalloon()
