@@ -189,8 +189,8 @@ public class BalloonPumpGame
         {
             popAnimationTimer += Raylib.GetFrameTime();
 
-            // After 1 second, end the animation
-            if (popAnimationTimer >= 1f)
+            // After 1.5 seconds, end the animation
+            if (popAnimationTimer >= 1.5f)
             {
                 showingPopAnimation = false;
                 balloonPopped = false;
