@@ -15,6 +15,7 @@ public class BalloonPumpGame
     const float MaxBalloonSize = 500f;
     const float MinBalloonSize = 80f;
     const float PumpIncrement = 50f;
+    const float SizePerPump = (MaxBalloonSize - MinBalloonSize) / 20f; // Assuming max possible pumps is 20
 
     // Multiplier tiers
     static readonly float[] Multipliers = new float[]
@@ -144,11 +145,15 @@ public class BalloonPumpGame
         nonce = 0; // Reset nonce when rotating seeds
     }
 
+    // Replace the PumpBalloon method with this:
     static void PumpBalloon()
     {
         currentPumps++;
         hasPumped = true; // Set the flag when pumped
-        balloonSize = MinBalloonSize + (MaxBalloonSize - MinBalloonSize) * (currentPumps / (float)maxPumps);
+        balloonSize = MinBalloonSize + (SizePerPump * currentPumps);
+
+        // Clamp the size to not exceed MaxBalloonSize
+        balloonSize = Math.Min(balloonSize, MaxBalloonSize);
 
         // Update multiplier if not popped
         if (!balloonPopped && currentMultiplierIndex < Multipliers.Length - 1)
@@ -281,30 +286,42 @@ public class BalloonPumpGame
     {
         Color balloonColor = balloonColors[currentColorIndex];
 
-        // Balloon wobble effect when getting close to max
-        float progress = currentPumps / (float)maxPumps;
-        float wobble = progress > 0.7f ? (float)Math.Sin(Raylib.GetTime() * 10) * (5 * progress) : 0;
+        // Always wobble after first pump
+        float wobble = currentPumps > 0 ? (float)Math.Sin(Raylib.GetTime() * 10) * 3f : 0;
+
+        // Balloon position - moved higher by increasing the Y offset
+        int balloonCenterX = ScreenWidth / 2 + (int)wobble;
+        int balloonCenterY = ScreenHeight / 2 - (int)(balloonSize);  // Increased Y offset to move balloon higher
 
         // Draw balloon
         Raylib.DrawCircle(
-            (int)(ScreenWidth / 2 + wobble),
-            (int)(ScreenHeight / 2 - balloonSize / 3),
+            balloonCenterX,
+            balloonCenterY,
             balloonSize / 2,
             balloonColor
         );
 
         // Balloon highlight
         Raylib.DrawCircle(
-            (int)(ScreenWidth / 2 - balloonSize / 6 + wobble),
-            (int)(ScreenHeight / 2 - balloonSize / 2.5f),
+            balloonCenterX - (int)(balloonSize / 6),
+            balloonCenterY - (int)(balloonSize / 4),
             balloonSize / 8,
             ColorFade(Color.White, 0.8f)
         );
 
-        // Balloon string
+        // Balloon string - connected to bottom and made longer
+        Vector2 stringTop = new Vector2(
+            balloonCenterX,
+            balloonCenterY + balloonSize / 2  // Start from bottom of balloon
+        );
+        Vector2 stringBottom = new Vector2(
+            balloonCenterX,
+            balloonCenterY + balloonSize / 2 + balloonSize * 0.8f  // Made string longer by adding balloonSize factor
+        );
+
         Raylib.DrawLineEx(
-            new Vector2(ScreenWidth / 2 + wobble, ScreenHeight / 2 + balloonSize / 3),
-            new Vector2(ScreenWidth / 2, ScreenHeight / 2 + balloonSize / 2),
+            stringTop,
+            stringBottom,
             2f,
             Color.Black
         );
