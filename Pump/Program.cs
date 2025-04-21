@@ -7,6 +7,20 @@ using Raylib_cs;
 using System.Numerics;
 using System.Runtime.InteropServices;
 
+public class SeedArchiveEntry
+{
+    public string ServerSeed { get; set; }
+    public string ServerSeedHash { get; set; }  // New property
+    public string ClientSeed { get; set; }
+    public int FirstNonce { get; set; }
+    public int LastNonce { get; set; }
+
+    public override string ToString()
+    {
+        return $"{{\n  \"server\": \"{ServerSeed}\",\n  \"server_hash\": \"{ServerSeedHash}\",\n  \"client\": \"{ClientSeed}\",\n  \"nonces\": \"{FirstNonce}-{LastNonce}\"\n}}";
+    }
+}
+
 public class BalloonPumpGame
 {
     // Game constants
@@ -46,6 +60,14 @@ public class BalloonPumpGame
     static Vector2 balloonPosition = new Vector2(ScreenWidth / 2, ScreenHeight / 2 - MinBalloonSize);
     static Vector2 balloonVelocity = Vector2.Zero;
 
+    // Archive state
+    static List<SeedArchiveEntry> seedArchive = new List<SeedArchiveEntry>();
+    static bool showArchive = false;
+    static Rectangle archiveButton = new Rectangle(ScreenWidth - 300, 60, 200, 40);
+    static Rectangle archiveCloseButton = new Rectangle(ScreenWidth - 100, 20, 80, 30);
+    static Vector2 archiveScrollPosition = Vector2.Zero;
+    static float archiveContentHeight = 0;
+
     // Cryptographic state
     static string serverSeed = "";
     static string clientSeed = "";
@@ -70,6 +92,13 @@ public class BalloonPumpGame
     static Rectangle betUpButton = new Rectangle(ScreenWidth - 120, ScreenHeight - 80, 50, 50);
     static Rectangle betDownButton = new Rectangle(ScreenWidth - 180, ScreenHeight - 80, 50, 50);
     static Rectangle rotateSeedButton = new Rectangle(ScreenWidth - 300, 10, 200, 40);
+
+    // Seed input state
+    static bool showSeedInput = false;
+    static string customClientSeedInput = "";
+    static Rectangle seedInputBox = new Rectangle(ScreenWidth / 2 - 200, ScreenHeight / 2 - 50, 400, 50);
+    static Rectangle seedSubmitButton = new Rectangle(ScreenWidth / 2 - 100, ScreenHeight / 2 + 20, 200, 50);
+    static Rectangle seedCancelButton = new Rectangle(ScreenWidth / 2 - 100, ScreenHeight / 2 + 80, 200, 50);
 
     [DllImport("kernel32.dll")]
     static extern IntPtr GetConsoleWindow();
@@ -102,7 +131,7 @@ public class BalloonPumpGame
         {
             // Update
             HandleInput();
-            UpdateCashOutAnimation(); // Add this line to update animations
+            UpdateCashOutAnimation();
             UpdateMenuBalloon();
             UpdatePopAnimation();
 
@@ -114,10 +143,10 @@ public class BalloonPumpGame
             DrawSeedInfo();
 
             // Draw game elements
-            if (roundActive || isCashingOut || showingPopAnimation) // Modified this condition
+            if (roundActive || isCashingOut || showingPopAnimation)
             {
                 DrawBalloon();
-                if (!isCashingOut && !showingPopAnimation) // Only show UI if not in cash out animation
+                if (!isCashingOut && !showingPopAnimation)
                 {
                     DrawUI();
                 }
@@ -125,6 +154,16 @@ public class BalloonPumpGame
             else
             {
                 DrawMainMenu();
+            }
+
+            // Draw seed input dialog if active
+            if (showArchive)
+            {
+                DrawArchive();
+            }
+            else if (showSeedInput)
+            {
+                DrawSeedInputDialog();
             }
 
             Raylib.EndDrawing();
@@ -143,17 +182,72 @@ public class BalloonPumpGame
         currentMultiplierIndex = 0;
         balloonPopped = false;
         roundActive = true;
-        hasPumped = false; // Reset the pumped flag
-
-        // Deduct bet from balance
+        hasPumped = false;
         balance -= currentBet;
     }
 
     static void RotateSeeds()
     {
+        showSeedInput = true;
+        customClientSeedInput = "";
+    }
+
+    static void CompleteSeedRotation()
+    {
+        // Add current seeds to archive before rotating
+        if (!string.IsNullOrEmpty(serverSeed))
+        {
+            var existingEntry = seedArchive.FirstOrDefault(e =>
+                e.ServerSeed == serverSeed && e.ClientSeed == clientSeed);
+
+            if (existingEntry != null)
+            {
+                existingEntry.LastNonce = nonce;
+            }
+            else
+            {
+                seedArchive.Add(new SeedArchiveEntry
+                {
+                    ServerSeed = serverSeed,
+                    ServerSeedHash = Sha256Encrypt(serverSeed),  // Store the hash
+                    ClientSeed = clientSeed,
+                    FirstNonce = 0,
+                    LastNonce = nonce
+                });
+            }
+        }
+
         serverSeed = GenerateServerSeed();
-        clientSeed = GenerateClientSeed();
-        nonce = 0; // Reset nonce when rotating seeds
+        clientSeed = string.IsNullOrWhiteSpace(customClientSeedInput) ? GenerateClientSeed() : customClientSeedInput;
+        nonce = 0;
+        showSeedInput = false;
+    }
+
+    static void DrawSeedInputDialog()
+    {
+        // Draw semi-transparent background
+        Raylib.DrawRectangle(0, 0, ScreenWidth, ScreenHeight, ColorFade(Color.Black, 0.5f));
+
+        // Draw input box
+        Raylib.DrawRectangleRec(seedInputBox, Color.White);
+        Raylib.DrawRectangleLines((int)seedInputBox.X, (int)seedInputBox.Y, (int)seedInputBox.Width, (int)seedInputBox.Height, Color.Black);
+
+        // Draw input text
+        string displayText = string.IsNullOrEmpty(customClientSeedInput) ? "Enter custom client seed..." : customClientSeedInput;
+        Color textColor = string.IsNullOrEmpty(customClientSeedInput) ? Color.Gray : Color.Black;
+        Raylib.DrawText(displayText, (int)seedInputBox.X + 10, (int)seedInputBox.Y + 15, 20, textColor);
+
+        // Draw submit button
+        Raylib.DrawRectangleRec(seedSubmitButton, Color.Green);
+        Raylib.DrawText("Submit", (int)seedSubmitButton.X + 60, (int)seedSubmitButton.Y + 15, 20, Color.White);
+
+        // Draw cancel button
+        Raylib.DrawRectangleRec(seedCancelButton, Color.Red);
+        Raylib.DrawText("Cancel", (int)seedCancelButton.X + 60, (int)seedCancelButton.Y + 15, 20, Color.White);
+
+        // Draw instructions
+        Raylib.DrawText("Enter custom client seed (leave blank for random):",
+            ScreenWidth / 2 - 200, ScreenHeight / 2 - 100, 20, Color.Black);
     }
 
     // Replace the PumpBalloon method with this:
@@ -240,6 +334,69 @@ public class BalloonPumpGame
     {
         Vector2 mousePos = Raylib.GetMousePosition();
 
+        if (showArchive)
+        {
+            if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                if (Raylib.CheckCollisionPointRec(mousePos, archiveCloseButton))
+                {
+                    showArchive = false;
+                }
+
+                // Handle scroll wheel for archive
+                float mouseWheel = Raylib.GetMouseWheelMove();
+                if (mouseWheel != 0)
+                {
+                    archiveScrollPosition.Y -= mouseWheel * 20;
+                    archiveScrollPosition.Y = Math.Clamp(archiveScrollPosition.Y, 0,
+                        Math.Max(0, archiveContentHeight - (ScreenHeight - 280)));
+                }
+            }
+            return;
+        }
+
+        if (showSeedInput)
+        {
+            // Handle seed input dialog
+            if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                if (Raylib.CheckCollisionPointRec(mousePos, seedSubmitButton))
+                {
+                    CompleteSeedRotation();
+                }
+                else if (Raylib.CheckCollisionPointRec(mousePos, seedCancelButton))
+                {
+                    showSeedInput = false;
+                }
+                else if (Raylib.CheckCollisionPointRec(mousePos, seedInputBox))
+                {
+                    // Focus on input box
+                    // Note: Raylib doesn't have built-in text input handling, so we'll just clear the input
+                    customClientSeedInput = "";
+                }
+            }
+
+            // Handle text input (simplified version since Raylib doesn't have proper text input)
+            int key = Raylib.GetCharPressed();
+            while (key > 0)
+            {
+                // Only allow hex characters (0-9, a-f, A-F)
+                if ((key >= '0' && key <= '9') || (key >= 'a' && key <= 'z') || (key >= 'A' && key <= 'Z'))
+                {
+                    customClientSeedInput += (char)key;
+                }
+                key = Raylib.GetCharPressed();
+            }
+
+            // Handle backspace
+            if (Raylib.IsKeyPressed(KeyboardKey.Backspace) && customClientSeedInput.Length > 0)
+            {
+                customClientSeedInput = customClientSeedInput.Substring(0, customClientSeedInput.Length - 1);
+            }
+
+            return; // Skip other input handling while seed dialog is open
+        }
+
         if (Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
             if (!roundActive && Raylib.CheckCollisionPointRec(mousePos, playButton))
@@ -265,6 +422,10 @@ public class BalloonPumpGame
             else if (!roundActive && Raylib.CheckCollisionPointRec(mousePos, rotateSeedButton))
             {
                 RotateSeeds();
+            }
+            else if (!roundActive && Raylib.CheckCollisionPointRec(mousePos, archiveButton))
+            {
+                ToggleArchive();
             }
         }
     }
@@ -377,6 +538,10 @@ public class BalloonPumpGame
         // Draw rotate seed button
         Raylib.DrawRectangleRec(rotateSeedButton, Color.SkyBlue);
         Raylib.DrawText("Rotate Seed", (int)rotateSeedButton.X + 30, (int)rotateSeedButton.Y + 10, 20, Color.Black);
+
+        // Draw archive button
+        Raylib.DrawRectangleRec(archiveButton, Color.Orange);
+        Raylib.DrawText("View Archive", (int)archiveButton.X + 30, (int)archiveButton.Y + 10, 20, Color.Black);
     }
 
     static void DrawBalloon()
@@ -568,5 +733,72 @@ public class BalloonPumpGame
     {
         return new Color(color.R, color.G, color.B, (byte)(255 * alpha));
     }
+
+    static void ToggleArchive()
+    {
+        showArchive = !showArchive;
+        archiveScrollPosition = Vector2.Zero;
+    }
+
+    static void DrawArchive()
+    {
+        // Draw semi-transparent background
+        Raylib.DrawRectangle(0, 0, ScreenWidth, ScreenHeight, ColorFade(Color.Black, 0.7f));
+
+        // Draw archive window
+        Raylib.DrawRectangle(100, 100, ScreenWidth - 200, ScreenHeight - 200, Color.White);
+        Raylib.DrawRectangleLines(100, 100, ScreenWidth - 200, ScreenHeight - 200, Color.Black);
+
+        // Draw title
+        Raylib.DrawText("Seed Archive", ScreenWidth / 2 - 60, 120, 30, Color.Black);
+
+        // Draw close button
+        Raylib.DrawRectangleRec(archiveCloseButton, Color.Red);
+        Raylib.DrawText("Close", (int)archiveCloseButton.X + 10, (int)archiveCloseButton.Y + 5, 20, Color.White);
+
+        // Calculate content area
+        Rectangle contentArea = new Rectangle(120, 160, ScreenWidth - 240, ScreenHeight - 280);
+        Raylib.BeginScissorMode((int)contentArea.X, (int)contentArea.Y, (int)contentArea.Width, (int)contentArea.Height);
+
+        // Draw archive content
+        float yPos = contentArea.Y - archiveScrollPosition.Y;
+        archiveContentHeight = 0;
+
+        Raylib.DrawText("[\n", (int)contentArea.X, (int)yPos, 20, Color.Black);
+        yPos += 30;
+        archiveContentHeight += 30;
+
+        for (int i = 0; i < seedArchive.Count; i++)
+        {
+            string entryText = seedArchive[i].ToString();
+            if (i < seedArchive.Count - 1) entryText += ",";
+            entryText += "\n";
+
+            Raylib.DrawText(entryText, (int)contentArea.X, (int)yPos, 20, Color.Black);
+
+            float textHeight = 20 * (entryText.Count(c => c == '\n') + 1);
+            yPos += textHeight;
+            archiveContentHeight += textHeight;
+        }
+
+        Raylib.DrawText("]", (int)contentArea.X, (int)yPos, 20, Color.Black);
+        archiveContentHeight += 30;
+
+        Raylib.EndScissorMode();
+
+        // Draw scroll bar if needed
+        if (archiveContentHeight > contentArea.Height)
+        {
+            float scrollBarHeight = contentArea.Height * (contentArea.Height / archiveContentHeight);
+            float scrollBarY = contentArea.Y + (archiveScrollPosition.Y / archiveContentHeight) * contentArea.Height;
+
+            Raylib.DrawRectangle(
+                (int)(contentArea.X + contentArea.Width - 10),
+                (int)scrollBarY,
+                10,
+                (int)scrollBarHeight,
+                Color.Gray
+            );
+        }
+    }
 }
-//
