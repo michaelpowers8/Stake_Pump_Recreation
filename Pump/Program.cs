@@ -100,6 +100,8 @@ public class BalloonPumpGame
     static Rectangle seedSubmitButton = new Rectangle(ScreenWidth / 2 - 100, ScreenHeight / 2 + 20, 200, 50);
     static Rectangle seedCancelButton = new Rectangle(ScreenWidth / 2 - 100, ScreenHeight / 2 + 80, 200, 50);
 
+    static Font arialFont;
+
     [DllImport("kernel32.dll")]
     static extern IntPtr GetConsoleWindow();
 
@@ -118,6 +120,20 @@ public class BalloonPumpGame
         Raylib.InitWindow(ScreenWidth, ScreenHeight, "Balloon Pump Game");
         Raylib.SetWindowState(ConfigFlags.FullscreenMode);
         Raylib.SetTargetFPS(60);
+
+        // Load Arial font (fallback to default if not found)
+        // Load Arial Bold font (fallback to default if missing)
+        Font arialFont;
+        try
+        {
+            arialFont = Raylib.LoadFontEx("arialbd.ttf", 32, null, 0);
+            if (arialFont.Texture.Id == 0)
+                throw new Exception("Failed to load font");
+        }
+        catch
+        {
+            arialFont = Raylib.GetFontDefault();
+        }
 
         // Generate initial seeds only once at startup
         if (string.IsNullOrEmpty(serverSeed))
@@ -167,6 +183,12 @@ public class BalloonPumpGame
             }
 
             Raylib.EndDrawing();
+        }
+
+        // Unload font
+        if (arialFont.Texture.Id != 0 && arialFont.Texture.Id != Raylib.GetFontDefault().Texture.Id)
+        {
+            Raylib.UnloadFont(arialFont);
         }
 
         Raylib.CloseWindow();
@@ -235,19 +257,19 @@ public class BalloonPumpGame
         // Draw input text
         string displayText = string.IsNullOrEmpty(customClientSeedInput) ? "Enter custom client seed..." : customClientSeedInput;
         Color textColor = string.IsNullOrEmpty(customClientSeedInput) ? Color.Gray : Color.Black;
-        Raylib.DrawText(displayText, (int)seedInputBox.X + 10, (int)seedInputBox.Y + 15, 20, textColor);
+        Raylib.DrawTextEx(arialFont, displayText, new Vector2(seedInputBox.X + 10, seedInputBox.Y + 15), 20, 2, textColor);
 
         // Draw submit button
         Raylib.DrawRectangleRec(seedSubmitButton, Color.Green);
-        Raylib.DrawText("Submit", (int)seedSubmitButton.X + 60, (int)seedSubmitButton.Y + 15, 20, Color.White);
+        Raylib.DrawTextEx(arialFont, "Submit", new Vector2(seedSubmitButton.X + 60, seedSubmitButton.Y + 15), 20, 2, Color.White);
 
         // Draw cancel button
         Raylib.DrawRectangleRec(seedCancelButton, Color.Red);
-        Raylib.DrawText("Cancel", (int)seedCancelButton.X + 60, (int)seedCancelButton.Y + 15, 20, Color.White);
+        Raylib.DrawTextEx(arialFont, "Cancel", new Vector2(seedCancelButton.X + 60, seedCancelButton.Y + 15), 20, 2, Color.White);
 
         // Draw instructions
-        Raylib.DrawText("Enter custom client seed (leave blank for random):",
-            ScreenWidth / 2 - 200, ScreenHeight / 2 - 100, 20, Color.Black);
+        Raylib.DrawTextEx(arialFont, "Enter custom client seed (leave blank for random):",
+            new Vector2(ScreenWidth / 2 - 200, ScreenHeight / 2 - 100), 20, 2, Color.Black);
     }
 
     // Replace the PumpBalloon method with this:
@@ -472,20 +494,20 @@ public class BalloonPumpGame
 
         // Draw play button
         Raylib.DrawRectangleRec(playButton, Color.Green);
-        Raylib.DrawText("PLAY", (int)playButton.X + 60, (int)playButton.Y + 15, 30, Color.White);
+        Raylib.DrawTextEx(arialFont, "PLAY", new Vector2(playButton.X + 60, playButton.Y + 15), 30, 2, Color.White);
 
         // Draw bet controls
-        Raylib.DrawText($"Bet: ${currentBet:F2}", ScreenWidth / 2 - 50, ScreenHeight / 2 + 100, 30, Color.Black);
+        Raylib.DrawTextEx(arialFont, $"Bet: ${currentBet:F2}", new Vector2(ScreenWidth / 2 - 50, ScreenHeight / 2 + 100), 30, 2, Color.Black);
 
         Raylib.DrawRectangleRec(betUpButton, Color.LightGray);
-        Raylib.DrawText("+", (int)betUpButton.X + 15, (int)betUpButton.Y + 10, 30, Color.Black);
+        Raylib.DrawTextEx(arialFont, "+", new Vector2(betUpButton.X + 15, betUpButton.Y + 10), 30, 2, Color.Black);
 
         Raylib.DrawRectangleRec(betDownButton, Color.LightGray);
-        Raylib.DrawText("-", (int)betDownButton.X + 15, (int)betDownButton.Y + 10, 30, Color.Black);
+        Raylib.DrawTextEx(arialFont, "-", new Vector2(betDownButton.X + 15, betDownButton.Y + 10), 30, 2, Color.Black);
 
         if (balloonPopped)
         {
-            Raylib.DrawText("Balloon Popped!", ScreenWidth / 2 - 100, ScreenHeight / 2 - 200, 40, Color.Red);
+            Raylib.DrawTextEx(arialFont, "Balloon Popped!", new Vector2(ScreenWidth / 2 - 100, ScreenHeight / 2 - 200), 40, 2, Color.Red);
         }
 
         // Always show balance and bet in bottom left
@@ -504,17 +526,17 @@ public class BalloonPumpGame
     {
         // Draw pump button
         Raylib.DrawRectangleRec(pumpButton, Color.Blue);
-        Raylib.DrawText("PUMP", (int)pumpButton.X + 60, (int)pumpButton.Y + 15, 30, Color.White);
+        Raylib.DrawTextEx(arialFont, "PUMP", new Vector2(pumpButton.X + 60, pumpButton.Y + 15), 30, 2, Color.White);
 
         // Draw cash out button - change color if disabled
         Color cashOutColor = hasPumped ? Color.Gold : Color.Gray;
         Raylib.DrawRectangleRec(cashOutButton, cashOutColor);
-        Raylib.DrawText("CASH OUT", (int)cashOutButton.X + 30, (int)cashOutButton.Y + 15, 30,
+        Raylib.DrawTextEx(arialFont, "CASH OUT", new Vector2(cashOutButton.X + 30, cashOutButton.Y + 15), 30, 2,
             hasPumped ? Color.Black : Color.DarkGray);
 
         // Draw current multiplier
-        Raylib.DrawText($"Multiplier: {Multipliers[currentMultiplierIndex]:F2}x",
-            ScreenWidth / 2 - 100, ScreenHeight / 2 + 100, 30, Color.Black);
+        Raylib.DrawTextEx(arialFont, $"Multiplier: {Multipliers[currentMultiplierIndex]:F2}x",
+            new Vector2(ScreenWidth / 2 - 100, ScreenHeight / 2 + 100), 30, 2, Color.Black);
 
         // Always show balance and bet in bottom left
         DrawPersistentUI();
@@ -523,25 +545,25 @@ public class BalloonPumpGame
     static void DrawPersistentUI()
     {
         // Draw balance and bet info in bottom left
-        Raylib.DrawText($"Balance: ${balance:F2}", 20, ScreenHeight - 90, 30, Color.Black);
-        Raylib.DrawText($"Current Bet: ${currentBet:F2}", 20, ScreenHeight - 50, 30, Color.Black);
+        Raylib.DrawTextEx(arialFont, $"Balance: ${balance:F2}", new Vector2(20, ScreenHeight - 90), 30, 2, Color.Black);
+        Raylib.DrawTextEx(arialFont, $"Current Bet: ${currentBet:F2}", new Vector2(20, ScreenHeight - 50), 30, 2, Color.Black);
     }
 
     static void DrawSeedInfo()
     {
         // Draw full hashed server seed, client seed, and formatted nonce at top
         string hashedServerSeed = Sha256Encrypt(serverSeed);
-        Raylib.DrawText($"Server Seed Hash: {hashedServerSeed}", 20, 10, 20, Color.Black);
-        Raylib.DrawText($"Client Seed: {clientSeed}", 20, 40, 20, Color.Black);
-        Raylib.DrawText($"Nonce: {FormatNonce(nonce)}", 20, 70, 20, Color.Black);
+        Raylib.DrawTextEx(arialFont, $"Server Seed Hash: {hashedServerSeed}", new Vector2(20, 10), 20, 2, Color.Black);
+        Raylib.DrawTextEx(arialFont, $"Client Seed: {clientSeed}", new Vector2(20, 40), 20, 2, Color.Black);
+        Raylib.DrawTextEx(arialFont, $"Nonce: {FormatNonce(nonce)}", new Vector2(20, 70), 20, 2, Color.Black);
 
         // Draw rotate seed button
         Raylib.DrawRectangleRec(rotateSeedButton, Color.SkyBlue);
-        Raylib.DrawText("Rotate Seed", (int)rotateSeedButton.X + 30, (int)rotateSeedButton.Y + 10, 20, Color.Black);
+        Raylib.DrawTextEx(arialFont, "Rotate Seed", new Vector2(rotateSeedButton.X + 30, rotateSeedButton.Y + 10), 20, 2, Color.Black);
 
         // Draw archive button
         Raylib.DrawRectangleRec(archiveButton, Color.Orange);
-        Raylib.DrawText("View Archive", (int)archiveButton.X + 30, (int)archiveButton.Y + 10, 20, Color.Black);
+        Raylib.DrawTextEx(arialFont, "View Archive", new Vector2(archiveButton.X + 30, archiveButton.Y + 10), 20, 2, Color.Black);
     }
 
     static void DrawBalloon()
@@ -750,11 +772,11 @@ public class BalloonPumpGame
         Raylib.DrawRectangleLines(100, 100, ScreenWidth - 200, ScreenHeight - 200, Color.Black);
 
         // Draw title
-        Raylib.DrawText("Seed Archive", ScreenWidth / 2 - 60, 120, 30, Color.Black);
+        Raylib.DrawTextEx(arialFont, "Seed Archive", new Vector2(ScreenWidth / 2 - 60, 120), 30, 2, Color.Black);
 
         // Draw close button
         Raylib.DrawRectangleRec(archiveCloseButton, Color.Red);
-        Raylib.DrawText("Close", (int)archiveCloseButton.X + 10, (int)archiveCloseButton.Y + 5, 20, Color.White);
+        Raylib.DrawTextEx(arialFont, "Close", new Vector2(archiveCloseButton.X + 10, archiveCloseButton.Y + 5), 20, 2, Color.White);
 
         // Calculate content area
         Rectangle contentArea = new Rectangle(120, 160, ScreenWidth - 240, ScreenHeight - 280);
@@ -764,7 +786,7 @@ public class BalloonPumpGame
         float yPos = contentArea.Y - archiveScrollPosition.Y;
         archiveContentHeight = 0;
 
-        Raylib.DrawText("[\n", (int)contentArea.X, (int)yPos, 20, Color.Black);
+        Raylib.DrawTextEx(arialFont, "[\n", new Vector2(contentArea.X, yPos), 20, 2, Color.Black);
         yPos += 30;
         archiveContentHeight += 30;
 
@@ -774,14 +796,14 @@ public class BalloonPumpGame
             if (i < seedArchive.Count - 1) entryText += ",";
             entryText += "\n";
 
-            Raylib.DrawText(entryText, (int)contentArea.X, (int)yPos, 20, Color.Black);
+            Raylib.DrawTextEx(arialFont, entryText, new Vector2(contentArea.X, yPos), 20, 2, Color.Black);
 
             float textHeight = 20 * (entryText.Count(c => c == '\n') + 1);
             yPos += textHeight;
             archiveContentHeight += textHeight;
         }
 
-        Raylib.DrawText("]", (int)contentArea.X, (int)yPos, 20, Color.Black);
+        Raylib.DrawTextEx(arialFont, "]", new Vector2(contentArea.X, yPos), 20, 2, Color.Black);
         archiveContentHeight += 30;
 
         Raylib.EndScissorMode();
