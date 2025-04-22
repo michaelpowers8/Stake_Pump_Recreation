@@ -50,3 +50,45 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Visual Studio & Rider
+*.suo
+*.user
+*.userosscache
+*.sln.ide
+*.rsuser
+
+# Build outputs
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+
+# Packages & dependencies
+packages/
+.nuget/
+*.nupkg
+*.snupkg
+
+# Logs & settings
+*.log
+appsettings*.json
+
+# Compiled Python scripts (if using IronPython)
+*.pyc
+__pycache__/
+
+# JetBrains Rider project files
+.idea/
+*.iml
+
+# Miscellaneous
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store
+
+# Local environment & secrets
+.env
+.env.*
